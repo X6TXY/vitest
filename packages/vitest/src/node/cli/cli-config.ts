@@ -14,6 +14,12 @@ export type CLIOption<Value> = {
   transform?: (value: unknown) => unknown
   array?: boolean
   normalize?: boolean
+  /**
+   * For options with an optional argument (`[value]`): whether a separate
+   * token (`--option value`) is this option's value. If it returns `false`,
+   * the token is kept as a positional argument (a test filter).
+   */
+  acceptsValue?: (value: string) => boolean
 } & (NestedOption<Value> extends never // require subcommands for nested options
   ? object
   : { subcommands: CLIOptions<NestedOption<Value>> | null }) &
@@ -28,10 +34,16 @@ export type CLIOptions<Config extends object> = {
 
 type VitestCLIOptions = CLIOptions<CliOptions>
 
+const isBooleanValue = (value: string) => /^(?:true|false|yes|no)$/.test(value)
+const isNumberValue = (value: string) => /^\d+$/.test(value)
+const isPortValue = (value: string) => isBooleanValue(value) || isNumberValue(value)
+const isInspectValue = (value: string) => isBooleanValue(value) || /^(?:\S+:)?\d+$/.test(value)
+
 const apiConfig: (port: number) => CLIOptions<ApiConfig> = (port: number) => ({
   port: {
     description: `Specify server port. Note if the port is already being used, Vite will automatically try the next available port so this may not be the actual port the server ends up listening on. If true will be set to \`${port}\``,
     argument: '[port]',
+    acceptsValue: isPortValue,
   },
   host: {
     description:
@@ -84,6 +96,22 @@ export const cliOptionsConfig: VitestCLIOptions = {
     shorthand: 'u',
     description: 'Update snapshot (accepts boolean, "new", "all" or "none")',
     argument: '[type]',
+    acceptsValue: (value) => isBooleanValue(value) || /^(?:all|new|none)$/.test(value),
+    transform(value) {
+      if (value === true || value === 'true' || value === 'yes') {
+        return true
+      }
+      if (value === false || value === 'false' || value === 'no') {
+        return false
+      }
+      if (value === 'all' || value === 'new' || value === 'none') {
+        return value
+      }
+
+      throw new TypeError(
+        `Unexpected value "--update=${value}". Use "--update=true ${value}" instead.`,
+      )
+    },
   },
   watch: {
     shorthand: 'w',
@@ -110,6 +138,7 @@ export const cliOptionsConfig: VitestCLIOptions = {
   api: {
     argument: '[port]',
     description: `Specify server port. Note if the port is already being used, Vite will automatically try the next available port so this may not be the actual port the server ends up listening on. If true will be set to ${defaultPort} or ${defaultBrowserPort} in browser mode`,
+    acceptsValue: isPortValue,
     subcommands: apiConfig(defaultPort),
     transform(portOrOptions) {
       if (typeof portOrOptions === 'number') {
@@ -122,6 +151,7 @@ export const cliOptionsConfig: VitestCLIOptions = {
     description:
       "Silent console output from tests. Use `'passed-only'` to see logs from failing tests only.",
     argument: '[value]',
+    acceptsValue: (value) => isBooleanValue(value) || value === 'passed-only',
     transform(value) {
       if (value === 'true' || value === 'yes' || value === true) {
         return true
@@ -573,6 +603,7 @@ export const cliOptionsConfig: VitestCLIOptions = {
   inspect: {
     description: 'Enable Node.js inspector (default: `127.0.0.1:9229`)',
     argument: '[[host:]port]',
+    acceptsValue: isInspectValue,
     transform(portOrEnabled) {
       if (portOrEnabled === 0 || portOrEnabled === 'true' || portOrEnabled === 'yes') {
         return true
@@ -586,6 +617,7 @@ export const cliOptionsConfig: VitestCLIOptions = {
   inspectBrk: {
     description: 'Enable Node.js inspector and break before the test starts',
     argument: '[[host:]port]',
+    acceptsValue: isInspectValue,
     transform(portOrEnabled) {
       if (portOrEnabled === 0 || portOrEnabled === 'true' || portOrEnabled === 'yes') {
         return true
@@ -610,6 +642,7 @@ export const cliOptionsConfig: VitestCLIOptions = {
   bail: {
     description: 'Stop test execution when given number of tests have failed (default: `0`)',
     argument: '[number]',
+    acceptsValue: isNumberValue,
     transform(value) {
       if (value === true) {
         return 1
@@ -885,6 +918,7 @@ export const cliOptionsConfig: VitestCLIOptions = {
     description:
       'List all available tags instead of running tests. `--list-tags=json` will output tags in JSON format, unless there are no tags.',
     argument: '[type]',
+    acceptsValue: (value) => isBooleanValue(value) || value === 'json',
   },
   clearCache: {
     description:

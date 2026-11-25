@@ -234,9 +234,82 @@ test('bail is parsed correctly', () => {
   expect(getCLIOptions('--bail=2')).toEqual({ bail: 2 })
   expect(getCLIOptions('--bail=0')).toEqual({ bail: 0 })
 
-  expect(() => getCLIOptions('--bail example.test.ts')).toThrowErrorMatchingInlineSnapshot(
+  expect(parseArguments('--bail example.test.ts')).toMatchObject({
+    options: { bail: 1 },
+    args: ['example.test.ts'],
+  })
+  expect(parseArguments('--bail 2 example.test.ts')).toMatchObject({
+    options: { bail: 2 },
+    args: ['example.test.ts'],
+  })
+
+  expect(() => getCLIOptions('--bail=example.test.ts')).toThrowErrorMatchingInlineSnapshot(
     `[TypeError: Unexpected value "--bail=example.test.ts". Use "--bail=1 example.test.ts" instead.]`,
   )
+})
+
+test('update is parsed correctly', () => {
+  expect(getCLIOptions('--update')).toMatchObject({ update: true })
+  expect(getCLIOptions('-u')).toMatchObject({ update: true })
+  expect(getCLIOptions('--update=true')).toMatchObject({ update: true })
+  expect(getCLIOptions('--update false')).toMatchObject({ update: false })
+  expect(getCLIOptions('--update=all')).toMatchObject({ update: 'all' })
+  expect(getCLIOptions('-u new')).toMatchObject({ update: 'new' })
+  expect(getCLIOptions('--update none')).toMatchObject({ update: 'none' })
+
+  expect(() => getCLIOptions('--update=example.test.ts')).toThrowErrorMatchingInlineSnapshot(
+    `[TypeError: Unexpected value "--update=example.test.ts". Use "--update=true example.test.ts" instead.]`,
+  )
+})
+
+test('options with an optional value keep the following filters', () => {
+  expect(parseArguments('run -u a.test.ts')).toMatchObject({
+    options: { update: true },
+    args: ['a.test.ts'],
+  })
+  expect(parseArguments('run --update all a.test.ts b.test.ts')).toMatchObject({
+    options: { update: 'all' },
+    args: ['a.test.ts', 'b.test.ts'],
+  })
+  expect(parseArguments('run -u a.test.ts b.test.ts --silent c.test.ts')).toMatchObject({
+    options: { update: true, silent: true },
+    args: ['a.test.ts', 'b.test.ts', 'c.test.ts'],
+  })
+  expect(parseArguments('--api a.test.ts')).toMatchObject({
+    options: { api: true },
+    args: ['a.test.ts'],
+  })
+  expect(parseArguments('--api 3000 a.test.ts')).toMatchObject({
+    options: { api: { port: 3000 } },
+    args: ['a.test.ts'],
+  })
+  expect(parseArguments('--inspect-brk a.test.ts')).toMatchObject({
+    options: { inspectBrk: true },
+    args: ['a.test.ts'],
+  })
+  expect(parseArguments('--inspect 127.0.0.1:9229 a.test.ts')).toMatchObject({
+    options: { inspect: '127.0.0.1:9229' },
+    args: ['a.test.ts'],
+  })
+  expect(parseArguments('--list-tags a.test.ts')).toMatchObject({
+    options: { listTags: true },
+    args: ['a.test.ts'],
+  })
+  // arguments after "--" are not touched
+  expect(parseArguments('-u -- a.test.ts')).toMatchObject({
+    options: { update: true },
+  })
+})
+
+test('public parseCLI keeps the filter after an option with an optional value', () => {
+  expect(parseCLI('vitest run -u a.test.ts')).toEqual({
+    filter: ['a.test.ts'],
+    options: expect.objectContaining({ update: true, run: true }),
+  })
+  expect(parseCLI('vitest run --silent --bail a.test.ts')).toEqual({
+    filter: ['a.test.ts'],
+    options: expect.objectContaining({ silent: true, bail: 1 }),
+  })
 })
 
 test('project is parsed correctly', () => {
@@ -428,7 +501,16 @@ test('silent', () => {
   expect(getCLIOptions('--silent=passed-only')).toEqual({ silent: 'passed-only' })
   expect(getCLIOptions('--silent=true example.test.ts')).toEqual({ silent: true })
 
-  expect(() => getCLIOptions('--silent example.test.ts')).toThrowErrorMatchingInlineSnapshot(
+  expect(parseArguments('--silent example.test.ts')).toMatchObject({
+    options: { silent: true },
+    args: ['example.test.ts'],
+  })
+  expect(parseArguments('--silent passed-only example.test.ts')).toMatchObject({
+    options: { silent: 'passed-only' },
+    args: ['example.test.ts'],
+  })
+
+  expect(() => getCLIOptions('--silent=example.test.ts')).toThrowErrorMatchingInlineSnapshot(
     `[TypeError: Unexpected value "--silent=example.test.ts". Use "--silent=true example.test.ts" instead.]`,
   )
 })

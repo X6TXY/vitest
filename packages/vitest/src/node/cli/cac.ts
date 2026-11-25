@@ -71,12 +71,81 @@ function addCliOptions(cli: CAC | Command, options: CLIOptionsConfig<any>) {
   }
 }
 
+type ValueGuard = (value: string) => boolean
+
+function collectValueGuards(
+  options: CLIOptionsConfig<any>,
+  guards = new Map<string, ValueGuard>(),
+  prefix = '',
+): Map<string, ValueGuard> {
+  for (const [name, option] of Object.entries(options)) {
+    if (!option) {
+      continue
+    }
+    const fullName = `${prefix}${option.alias || name}`
+    if (option.acceptsValue) {
+      guards.set(`--${fullName}`, option.acceptsValue)
+      if (option.shorthand) {
+        guards.set(`-${option.shorthand}`, option.acceptsValue)
+      }
+    }
+    if ('subcommands' in option && option.subcommands) {
+      collectValueGuards(option.subcommands, guards, `${fullName}.`)
+    }
+  }
+  return guards
+}
+
+function camelcaseFlag(flag: string): string {
+  return flag.replace(/(?<=\w)-(\w)/g, (_, char: string) => char.toUpperCase())
+}
+
+/**
+ * cac always takes the token after an option with an optional value as that value,
+ * so `vitest -u basic.test.ts` sets `update` to "basic.test.ts" and drops the filter.
+ * When the option doesn't accept the token, move it in front of all options
+ * (right after the command), so it stays a positional argument.
+ */
+function keepFiltersAfterOptionalValues(
+  argv: string[],
+  guards: Map<string, ValueGuard>,
+  commands: Set<string>,
+): string[] {
+  const result = [...argv]
+  // argv is [node, script, ...args]
+  let insertAt = commands.has(result[2]) ? 3 : 2
+  for (let i = insertAt; i < result.length - 1; i++) {
+    const flag = result[i]
+    if (flag === '--') {
+      break
+    }
+    if (!flag.startsWith('-') || flag.includes('=')) {
+      continue
+    }
+    const accepts = guards.get(camelcaseFlag(flag))
+    const next = result[i + 1]
+    if (accepts && !next.startsWith('-') && !accepts(removeQuotes(next))) {
+      result.splice(i + 1, 1)
+      result.splice(insertAt++, 0, next)
+      // the flag moved to i + 1, check it again against its new next token
+    }
+  }
+  return result
+}
+
 export function createCLI(options: CliParseOptions = {}): CAC {
   if (isAgent && !isForceColor()) {
     disableDefaultColors()
   }
 
   const cli = cac('vitest')
+
+  const guards = collectValueGuards(cliOptionsConfig)
+  const parse = cli.parse.bind(cli)
+  cli.parse = (argv = process.argv, parseOptions) => {
+    const commands = new Set(cli.commands.map((command) => command.name).filter(Boolean))
+    return parse(keepFiltersAfterOptionalValues(argv, guards, commands), parseOptions)
+  }
 
   cli.version(version)
 
